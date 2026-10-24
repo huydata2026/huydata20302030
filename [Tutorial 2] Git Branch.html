@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Git Branch 3D — Nhánh, tách và gộp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b1220; --panel:rgba(10,16,32,.74); --line:rgba(148,163,184,.18);
+    --text:#e2e8f0; --muted:#94a3b8; --blue:#60a5fa; --orange:#f59e0b; --green:#22c55e;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-ui,-apple-system,sans-serif;overflow:hidden}
+  #c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+  #c.dragging{cursor:grabbing}
+  #c.hover{cursor:pointer}
+  #ui{position:fixed;inset:0;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
+  .panel{background:var(--panel);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+  #topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px}
+  #cmd{padding:12px 16px;min-width:280px;max-width:380px}
+  .eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .cmdline{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:17px;font-weight:600;margin-top:6px;color:#fff;word-break:break-all}
+  .cmdline .prompt{color:var(--blue);margin-right:6px}
+  .title{margin-top:6px;font-size:13px;color:var(--muted)}
+  #explain{padding:12px 16px;max-width:400px}
+  #explain p{margin:6px 0 0;font-size:14px;line-height:1.5}
+  #explain p b{color:#fff}
+  #bottom{display:flex;flex-direction:column;align-items:center;gap:8px;padding:0 16px 18px}
+  #recap{pointer-events:none;display:flex;gap:14px;padding:12px 18px;margin-bottom:4px;opacity:0;transform:translateY(8px);transition:opacity .5s,transform .5s}
+  #recap.show{opacity:1;transform:none}
+  #recap div{font-size:13px;line-height:1.4}
+  #recap b{display:block;font-family:"JetBrains Mono",monospace;font-size:13px}
+  #recap .add b{color:#fdba74} #recap .commit b{color:var(--orange)} #recap .push b{color:var(--blue)}
+  #bar{pointer-events:auto;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:14px;padding:10px 12px;max-width:calc(100vw - 32px)}
+  #bar button{pointer-events:auto;font:inherit;font-weight:600;font-size:14px;color:#fff;background:#1d4ed8;border:0;border-radius:10px;padding:10px 16px;cursor:pointer;transition:background .2s,transform .1s}
+  #bar button:hover{background:#2563eb}
+  #bar button:active{transform:scale(.97)}
+  #bar button:disabled{background:#334155;color:#94a3b8;cursor:default}
+  #dots{display:flex;gap:7px}
+  #dots span{width:10px;height:10px;border-radius:50%;background:#334155;cursor:pointer;transition:background .2s,transform .2s}
+  #dots span.done{background:#3b82f6}
+  #dots span.active{background:#fff;transform:scale(1.25)}
+  #counter{font-family:"JetBrains Mono",monospace;font-size:13px;color:var(--muted);min-width:44px;text-align:center}
+  #hint{font-size:12px;color:var(--muted);opacity:.85}
+  #flow{font-size:12px;color:var(--muted);letter-spacing:.02em}
+  #flow b{color:#cbd5e1;font-weight:600}
+  #brand{position:fixed;left:50%;top:14px;transform:translateX(-50%);font-size:12px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:600;pointer-events:none;white-space:nowrap}
+  #loading{position:fixed;inset:0;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;background:var(--bg);z-index:10;transition:opacity .6s;font-size:14px;color:var(--muted)}
+  #loading.hide{opacity:0;pointer-events:none}
+  #loading .err{color:#fca5a5;max-width:520px;text-align:center;font-family:monospace;font-size:12px;white-space:pre-wrap}
+  .spinner{width:34px;height:34px;border-radius:50%;border:3px solid #1e293b;border-top-color:var(--blue);animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (max-width:720px){
+    #brand{display:none}
+    #topbar{flex-direction:column;padding:10px}
+    #cmd,#explain{max-width:calc(100vw - 20px);width:100%;min-width:0;padding:10px 12px}
+    .cmdline{font-size:14px} #explain p{font-size:13px}
+    #recap{flex-direction:column;gap:6px;padding:10px 14px}
+    #bar{gap:10px;padding:8px}
+    #bar button{padding:9px 12px;font-size:13px}
+    #hint,#flow{display:none}
+    #counter{min-width:36px}
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div id="topbar">
+    <div id="cmd" class="panel">
+      <div class="eyebrow">Lệnh Git · Bước <span id="stepNo">1</span>/7</div>
+      <div class="cmdline"><span class="prompt">$</span><span id="cmdText">git log --oneline</span></div>
+      <div class="title" id="cmdTitle"></div>
+    </div>
+    <div id="explain" class="panel">
+      <div class="eyebrow" id="zoneTag">Nhánh main</div>
+      <p id="explainText"></p>
+    </div>
+  </div>
+  <div id="bottom">
+    <div id="recap" class="panel">
+      <div class="add"><b>git switch -c</b>tạo nhánh mới ngay tại commit hiện tại</div>
+      <div class="commit"><b>commit trên nhánh</b>thử nghiệm an toàn, main không bị ảnh hưởng</div>
+      <div class="push"><b>git merge</b>gộp nhánh về main bằng một merge commit</div>
+    </div>
+    <div id="flow"><b>main</b> → <b>git switch -c feature</b> → commit trên feature → <b>git merge</b> → <b>main</b></div>
+    <div id="bar" class="panel">
+      <button id="prev">← Trước</button>
+      <div id="dots"></div>
+      <div id="counter">1 / 7</div>
+      <button id="next">Tiếp theo →</button>
+    </div>
+    <div id="hint">Kéo để xoay nhẹ · Cuộn để zoom · Click vào đường ray main / feature để focus · Phím ← →</div>
+  </div>
+</div>
+<div id="brand">Git Branch 3D — Nhánh, tách và gộp</div>
+<div id="loading"><div class="spinner"></div><div id="loadText">Đang dựng thế giới Git…</div></div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+</script>
+<script>
+  window.addEventListener('error', e => {
+    const el = document.getElementById('loadText');
+    if (el) { el.innerHTML = '<div class="err">Không khởi động được:\n' + (e.message || e) + '</div>'; }
+  });
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+/* =========================================================
+   1. CONFIG & PALETTE
+   ========================================================= */
+const C = {
+  bg: 0x0b1220, floor: 0x46546e, floorEdge: 0x33405a, wall: 0x2b3a55, wall2: 0x33425e,
+  rug: 0x24406b, wood: 0xd9c9ad, metal: 0x475569, dark: 0x0f172a, ground: 0x0a1120,
+  fileClean: 0xcbd5e1, orange: 0xf59e0b, blue: 0x3b82f6, blueSoft: 0x60a5fa, green: 0x22c55e,
+  hoodie: 0x2563eb, pants: 0x1e293b, skin: 0xf1c7a3, hair: 0x1f2937,
+  remoteLocked: 0x64748b, remoteLit: 0x93c5fd, cloud: 0xcbd5e1, plant: 0x4ade80, pot: 0x8b5e3c,
+};
+const DEG = Math.PI / 180;
+const v = (x, y, z) => new THREE.Vector3(x, y, z);
+
+/* =========================================================
+   2. SMALL HELPERS (easing, tween runner, materials, geometry)
+   ========================================================= */
+const clamp = (a, lo, hi) => Math.max(lo, Math.min(hi, a));
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeInOut = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+const easeIn = t => t * t * t;
+const easeOutBack = t => { const c = 1.70158, c3 = c + 1; return 1 + c3 * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+const linear = t => t;
+
+const tweens = [];
+let now = 0;
+function tween(o) {
+  o.start = now + (o.delay || 0); o.dur = o.dur ?? 1; o.ease = o.ease || easeInOut; o.begun = false;
+  tweens.push(o); return o;
+}
+function killTweens(tag) {
+  for (let i = tweens.length - 1; i >= 0; i--) if (!tag || tweens[i].tag === tag) tweens.splice(i, 1);
+}
+function runTweens() {
+  for (let i = tweens.length - 1; i >= 0; i--) {
+    const o = tweens[i];
+    if (!o || now < o.start) continue;
+    if (!o.begun) { o.begun = true; o.onStart && o.onStart(); }
+    const raw = o.dur > 0 ? clamp((now - o.start) / o.dur, 0, 1) : 1;
+    o.update && o.update(o.ease(raw), raw);
+    if (raw >= 1) { tweens.splice(i, 1); o.done && o.done(); }
+  }
+}
+/** Tween numeric props of any object. dur 0 (and no delay) = set immediately. */
+function to(obj, props, dur = 0.45, opts = {}) {
+  if (dur <= 0 && !opts.delay) { Object.assign(obj, props); opts.done && opts.done(); return null; }
+  const from = {};
+  return tween({
+    dur, delay: opts.delay || 0, ease: opts.ease || easeInOut, tag: opts.tag,
+    onStart() { for (const k in props) from[k] = obj[k]; },
+    update(p) { for (const k in props) obj[k] = lerp(from[k], props[k], p); },
+    done: opts.done,
+  });
+}
+function toColor(col, hex, dur = 0.45, opts = {}) {
+  const target = new THREE.Color(hex);
+  if (dur <= 0 && !opts.delay) { col.copy(target); return null; }
+  let from;
+  return tween({ dur, delay: opts.delay || 0, ease: opts.ease || easeInOut,
+    onStart() { from = col.clone(); }, update(p) { col.lerpColors(from, target, p); }, done: opts.done });
+}
+const setPos = (obj, [x, y, z], dur, opts) => to(obj.position, { x, y, z }, dur, opts);
+const setScale = (obj, s, dur, opts) => to(obj.scale, { x: s, y: s, z: s }, dur, opts);
+function show(obj, on, dur = 0.45, opts = {}) {
+  if (on) { obj.visible = true; return setScale(obj, 1, dur, opts); }
+  return setScale(obj, 0, dur, { ...opts, done: () => { obj.visible = false; opts.done && opts.done(); } });
+}
+function pop(obj, dur = 0.55, opts = {}) {            // scale 0 -> base with overshoot (sprites keep their aspect)
+  const base = obj.userData.baseScale || new THREE.Vector3(1, 1, 1);
+  obj.scale.copy(base).multiplyScalar(0.0001);
+  return tween({ dur, delay: opts.delay || 0, ease: easeOutBack, onStart() { obj.visible = true; },
+    update(p) { obj.scale.copy(base).multiplyScalar(Math.max(0.0001, p)); }, done: opts.done });
+}
+function fly(obj, curve, dur, opts = {}) {
+  return tween({ dur, delay: opts.delay || 0, ease: opts.ease || easeInOut,
+    onStart() { obj.visible = true; },
+    update(p) { curve.getPointAt(p, obj.position); if (opts.spin) obj.rotation.y = p * Math.PI * opts.spin; opts.onUpdate && opts.onUpdate(p); },
+    done: opts.done });
+}
+
+function mat(color, opts = {}) {
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05, flatShading: true, ...opts });
+}
+function box(w, h, d, material, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+  m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; return m;
+}
+function cyl(rt, rb, h, seg, material, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), material);
+  m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; return m;
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+const hexCss = (hex, a = 1) => `rgba(${(hex >> 16) & 255},${(hex >> 8) & 255},${hex & 255},${a})`;
+
+/* =========================================================
+   3. RENDERER / SCENE / CAMERA
+   ========================================================= */
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.3;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(C.bg);
+scene.fog = new THREE.Fog(C.bg, 55, 110);
+
+const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 260);
+
+/* =========================================================
+   5. LABELS (canvas sprites), TERMINAL HOLOGRAM, PARTICLES
+   ========================================================= */
+const allLabels = [];
+function makeLabel(text, o = {}) {
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: o.depthTest ?? false, depthWrite: false, fog: false }));
+  sprite.renderOrder = 20;
+  sprite.userData.o = o; sprite.userData.text = text;
+  sprite.setText = (t, over) => {
+    if (over) Object.assign(o, over);
+    sprite.userData.text = t;
+    const lines = String(t).split('\n');
+    const fs = o.fontSize || 40, pad = 22, lh = fs * 1.3;
+    const cv = document.createElement('canvas'), ctx = cv.getContext('2d');
+    const font = `${o.weight || 600} ${fs}px ${o.mono ? '"JetBrains Mono", ui-monospace, monospace' : '"Be Vietnam Pro", system-ui, sans-serif'}`;
+    ctx.font = font;
+    const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + pad * 2;
+    const h = lh * lines.length + pad * 1.2;
+    cv.width = Math.ceil(w); cv.height = Math.ceil(h);
+    ctx.font = font; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    ctx.fillStyle = o.bg || 'rgba(15,23,42,0.82)';
+    roundRect(ctx, 0, 0, cv.width, cv.height, Math.min(18, cv.height / 2)); ctx.fill();
+    if (o.border) { ctx.strokeStyle = o.border; ctx.lineWidth = 4; roundRect(ctx, 2, 2, cv.width - 4, cv.height - 4, Math.min(16, cv.height / 2 - 2)); ctx.stroke(); }
+    lines.forEach((l, i) => {
+      ctx.fillStyle = (i > 0 && o.subColor) ? o.subColor : (o.color || '#e2e8f0');
+      ctx.fillText(l, cv.width / 2, pad * 0.6 + lh * (i + 0.5));
+    });
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    if (sprite.material.map) sprite.material.map.dispose();
+    sprite.material.map = tex; sprite.material.needsUpdate = true;
+    const worldH = (o.height || 0.4) * cv.height / (fs * 1.3 + pad * 1.2);
+    sprite.scale.set(worldH * cv.width / cv.height, worldH, 1);
+    sprite.userData.baseScale = sprite.scale.clone();
+  };
+  sprite.setText(text);
+  allLabels.push(sprite);
+  return sprite;
+}
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => allLabels.forEach(l => l.setText(l.userData.text)));
+
+function makeTerminal() {
+  const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 700;
+  const ctx = cv.getContext('2d');
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 2.87),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false, fog: false }));
+  m.renderOrder = 30; m.visible = false;
+  let lines = [], shown = Infinity;
+  function draw() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = 'rgba(7,13,27,0.9)'; roundRect(ctx, 0, 0, cv.width, cv.height, 26); ctx.fill();
+    ctx.strokeStyle = 'rgba(96,165,250,0.55)'; ctx.lineWidth = 3; roundRect(ctx, 2, 2, cv.width - 4, cv.height - 4, 24); ctx.stroke();
+    ctx.fillStyle = 'rgba(30,41,59,0.95)'; roundRect(ctx, 2, 2, cv.width - 4, 66, 24); ctx.fill(); ctx.fillRect(2, 40, cv.width - 4, 28);
+    [['#f87171', 34], ['#fbbf24', 64], ['#4ade80', 94]].forEach(([c, x]) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, 35, 10, 0, Math.PI * 2); ctx.fill(); });
+    ctx.font = '600 26px "JetBrains Mono", ui-monospace, monospace'; ctx.fillStyle = '#94a3b8'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('zsh — ~/my-app', cv.width / 2, 36);
+    ctx.textAlign = 'left'; ctx.font = '500 28px "JetBrains Mono", ui-monospace, monospace';
+    let budget = shown, y = 112;
+    for (const ln of lines) {
+      if (budget <= 0) break;
+      let x = 36;
+      if (ln.prompt) { ctx.fillStyle = '#60a5fa'; ctx.fillText('$', x, y); x += 40; }
+      const txt = ln.t.slice(0, budget); budget -= ln.t.length;
+      ctx.fillStyle = ln.c || '#e2e8f0'; ctx.fillText(txt, x, y);
+      if (budget < 0) { ctx.fillStyle = '#e2e8f0'; ctx.fillRect(x + ctx.measureText(txt).width + 6, y - 14, 13, 28); }
+      y += 42;
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    for (let yy = 0; yy < cv.height; yy += 6) ctx.fillRect(0, yy, cv.width, 2);
+    tex.needsUpdate = true;
+  }
+  m.setLines = (ls, type = true) => {
+    lines = ls; killTweens('term');
+    if (type) {
+      const total = ls.reduce((s, l) => s + l.t.length, 0);
+      shown = 0; draw();
+      tween({ dur: clamp(total * 0.012, 0.5, 2.2), ease: linear, tag: 'term', update(p) { shown = Math.floor(total * p) + 1; draw(); }, done() { shown = Infinity; draw(); } });
+    } else { shown = Infinity; draw(); }
+  };
+  return m;
+}
+
+class Particles {
+  constructor(n = 600) {
+    this.n = n; this.i = 0;
+    this.pos = new Float32Array(n * 3); this.col = new Float32Array(n * 3);
+    this.vel = new Float32Array(n * 3); this.life = new Float32Array(n);
+    for (let i = 0; i < n; i++) this.pos[i * 3 + 1] = -999;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
+    this.points = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.13, vertexColors: true, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    this.points.frustumCulled = false;
+  }
+  emit(p, hex, count = 8, spread = 0.3, speed = 1.2, up = 0.8) {
+    const c = new THREE.Color(hex);
+    for (let k = 0; k < count; k++) {
+      const i = this.i; this.i = (this.i + 1) % this.n;
+      this.pos[i * 3] = p.x + (Math.random() - .5) * spread; this.pos[i * 3 + 1] = p.y + (Math.random() - .5) * spread; this.pos[i * 3 + 2] = p.z + (Math.random() - .5) * spread;
+      this.vel[i * 3] = (Math.random() - .5) * speed; this.vel[i * 3 + 1] = Math.random() * speed * up + 0.2; this.vel[i * 3 + 2] = (Math.random() - .5) * speed;
+      this.col[i * 3] = c.r; this.col[i * 3 + 1] = c.g; this.col[i * 3 + 2] = c.b;
+      this.life[i] = 0.5 + Math.random() * 0.6;
+    }
+  }
+  update(dt) {
+    const { pos, vel, col, life } = this;
+    for (let i = 0; i < this.n; i++) {
+      if (life[i] <= 0) continue;
+      life[i] -= dt;
+      pos[i * 3] += vel[i * 3] * dt; pos[i * 3 + 1] += vel[i * 3 + 1] * dt; pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
+      vel[i * 3 + 1] -= 1.2 * dt;
+      const f = 1 - dt * 2.4; col[i * 3] *= f; col[i * 3 + 1] *= f; col[i * 3 + 2] *= f;
+      if (life[i] <= 0) pos[i * 3 + 1] = -999;
+    }
+    this.points.geometry.attributes.position.needsUpdate = true;
+    this.points.geometry.attributes.color.needsUpdate = true;
+  }
+}
+const particles = new Particles();
+scene.add(particles.points);
+
+
+/* =========================================================
+   4. LIGHTS
+   ========================================================= */
+const lights = {};
+lights.hemi = new THREE.HemisphereLight(0xcfe0ff, 0x334155, 1.5);
+lights.amb = new THREE.AmbientLight(0xffffff, 0.6);
+lights.sun = new THREE.DirectionalLight(0xfff1dc, 3.4);
+lights.sun.position.set(10, 22, 14);
+lights.sun.target.position.set(0, 0, -1);
+lights.sun.castShadow = true;
+lights.sun.shadow.mapSize.set(2048, 2048);
+Object.assign(lights.sun.shadow.camera, { left: -24, right: 24, top: 20, bottom: -20, near: 1, far: 80 });
+lights.sun.shadow.bias = -0.0004; lights.sun.shadow.normalBias = 0.03;
+lights.feature = new THREE.PointLight(C.orange, 0, 14, 2); lights.feature.position.set(1.5, 5.5, -2.6);
+lights.merge = new THREE.PointLight(C.blueSoft, 0, 12, 2);  lights.merge.position.set(8, 3.5, 1);
+scene.add(lights.hemi, lights.amb, lights.sun, lights.sun.target, lights.feature, lights.merge);
+
+/* =========================================================
+   6. WORLD: plateau, main track, feature overpass, commits, pointers, avatar
+   ========================================================= */
+const Y_MAIN = 1.0, Y_FEAT = 3.2, Z_FEAT = -2.6;
+const COMMITS = [
+  { id: 'c1', hash: '1a2b3c4', msg: 'Khởi tạo dashboard',     pos: [-10, Y_MAIN, 0],      kind: 'main',    from: 0 },
+  { id: 'c2', hash: '5d6e7f8', msg: 'Thêm bảng người chơi',   pos: [-6, Y_MAIN, 0],       kind: 'main',    from: 0 },
+  { id: 'c3', hash: '9a8b7c6', msg: 'Thêm cột retention',     pos: [-2, Y_FEAT, Z_FEAT],  kind: 'feature', from: 2 },
+  { id: 'c4', hash: '3c4d5e6', msg: 'Tính retention D1/D7',   pos: [1.5, Y_FEAT, Z_FEAT], kind: 'feature', from: 3 },
+  { id: 'c5', hash: '7f8a9b0', msg: 'Viết test retention',    pos: [5, Y_FEAT, Z_FEAT],   kind: 'feature', from: 3 },
+  { id: 'c6', hash: '2b3c4d5', msg: 'Sửa lỗi hiển thị',       pos: [1, Y_MAIN, 0],        kind: 'main',    from: 4 },
+  { id: 'm',  hash: 'e1f2a3b', msg: 'Merge feature → main',   pos: [8, Y_MAIN, 0],        kind: 'merge',   from: 5 },
+  { id: 'c7', hash: '6c7d8e9', msg: 'Cập nhật tài liệu',      pos: [12, Y_MAIN, 0],       kind: 'main',    from: 6 },
+];
+const byId = Object.fromEntries(COMMITS.map(c => [c.id, c]));
+const zoneMeshes = [];
+function tagZone(obj, zone) { obj.traverse(o => { if (o.isMesh && !o.isSprite) { o.userData.zone = zone; zoneMeshes.push(o); } }); }
+
+/* ---- 6a. plateau & scenery ---- */
+function buildGround() {
+  const g = new THREE.Group();
+  const far = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: C.ground, roughness: 1 }));
+  far.rotation.x = -Math.PI / 2; far.position.y = -1.2; far.receiveShadow = true; g.add(far);
+  const top = box(40, 0.6, 16, mat(C.floor), 0, -0.3, -1); top.receiveShadow = true; g.add(top);
+  g.add(box(41, 0.3, 17, mat(C.floorEdge), 0, -0.75, -1));
+  g.add(box(42, 0.3, 18, mat(0x2a3650), 0, -1.05, -1));
+  for (let x = -18; x <= 18; x += 2) g.add(box(0.04, 0.02, 15.6, mat(0x55658a), x, 0.01, -1));
+  for (let z = -8; z <= 6; z += 2) g.add(box(39.6, 0.02, 0.04, mat(0x55658a), 0, 0.01, z));
+  // hills at the back
+  const hillMat = mat(0x3a4a66);
+  [[-14, -7.5, 4, 1.6], [-5, -8, 5, 2.2], [6, -7.8, 4.5, 1.8], [15, -7.2, 3.5, 1.4]].forEach(([x, z, r, h]) => {
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), hillMat); m.position.set(x, -0.3, z); m.scale.set(1, h / r, 0.7); m.castShadow = m.receiveShadow = true; g.add(m);
+  });
+  // trees
+  const tree = (x, z, s = 1) => { const t = new THREE.Group(); t.position.set(x, 0, z); t.scale.setScalar(s);
+    t.add(cyl(0.12, 0.16, 0.8, 6, mat(0x8b5e3c), 0, 0.4, 0));
+    const a = new THREE.Mesh(new THREE.ConeGeometry(0.75, 1.5, 6), mat(0x3f9d5a)); a.position.y = 1.35; a.castShadow = true; t.add(a);
+    const b = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.2, 6), mat(0x4ade80)); b.position.y = 2.15; b.castShadow = true; t.add(b);
+    return t; };
+  [[-17, -5, 1.1], [-15.5, 4.5, 0.9], [-12, -5.5, 1.0], [16.5, -4.5, 1.2], [14, 5, 0.9], [17.5, 2, 1.0], [-3, 5.5, 0.8], [9, 5.8, 0.85]].forEach(([x, z, s]) => g.add(tree(x, z, s)));
+  // rocks
+  [[-8, 5, 0.5], [4, -6.2, 0.6], [11, -5.5, 0.45], [-16, 0.5, 0.4]].forEach(([x, z, r]) => { const m = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0), mat(0x64748b)); m.position.set(x, r * 0.6, z); m.castShadow = true; g.add(m); });
+  // clouds
+  const cloudMat = mat(C.cloud, { roughness: 1 });
+  const clouds = [];
+  [[-12, 9, -9], [-1, 10.5, -11], [9, 9.5, -9.5], [16, 11, -12]].forEach(([x, y, z], i) => {
+    const cg = new THREE.Group(); cg.position.set(x, y, z); cg.userData = { baseX: x, phase: i * 1.7 };
+    [[0, 0, 0, 1.1], [1.1, -0.2, 0.2, 0.8], [-1.0, -0.1, 0.1, 0.75], [0.4, 0.5, -0.3, 0.7]].forEach(([dx, dy, dz, r]) => { const s = new THREE.Mesh(new THREE.SphereGeometry(r, 6, 4), cloudMat); s.position.set(dx, dy, dz); cg.add(s); });
+    g.add(cg); clouds.push(cg);
+  });
+  g.clouds = clouds;
+  return g;
+}
+
+/* ---- 6b. tracks ---- */
+const FEAT_CURVE = new THREE.CatmullRomCurve3([
+  v(-6, Y_MAIN, 0), v(-4.9, Y_MAIN + 0.35, -0.45), v(-3.6, Y_FEAT - 0.75, -1.9), v(-2, Y_FEAT, Z_FEAT),
+  v(1.5, Y_FEAT, Z_FEAT), v(5, Y_FEAT, Z_FEAT), v(6.4, Y_FEAT - 0.75, -1.9), v(7.3, Y_MAIN + 0.35, -0.45), v(8, Y_MAIN, 0),
+], false, 'centripetal', 0.6);
+const TUBE_SEG = 200, TUBE_RAD = 12;
+function uOf(pos) { // curve parameter closest to a point
+  const p = v(...pos); let best = 0, bd = 1e9;
+  for (let i = 0; i <= 600; i++) { const u = i / 600; const d = FEAT_CURVE.getPointAt(u).distanceToSquared(p); if (d < bd) { bd = d; best = u; } }
+  return best;
+}
+const U = { c3: uOf(byId.c3.pos), c4: uOf(byId.c4.pos), c5: uOf(byId.c5.pos) };
+
+function buildTracks() {
+  const g = new THREE.Group();
+  const mainMat = new THREE.MeshStandardMaterial({ color: C.blue, roughness: 0.45, metalness: 0.1, emissive: C.blue, emissiveIntensity: 0.12 });
+  const mainTube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(v(-17, Y_MAIN, 0), v(17, Y_MAIN, 0)), 4, 0.22, TUBE_RAD, false), mainMat);
+  mainTube.castShadow = true; g.add(mainTube);
+  [-17, 17].forEach(x => { const cap = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), mainMat); cap.position.set(x, Y_MAIN, 0); g.add(cap); });
+  const ped = mat(0x64748b);
+  for (let x = -16; x <= 16; x += 2.0) { g.add(box(0.26, Y_MAIN - 0.2, 0.26, ped, x, (Y_MAIN - 0.2) / 2, 0)); g.add(box(0.9, 0.08, 0.9, ped, x, Y_MAIN - 0.24, 0)); }
+  const mainG = new THREE.Group(); mainG.add(mainTube); tagZone(mainG, 'main'); g.add(mainG);
+  // feature overpass (drawn progressively)
+  const featMat = new THREE.MeshStandardMaterial({ color: C.orange, roughness: 0.45, metalness: 0.1, emissive: C.orange, emissiveIntensity: 0.15 });
+  const featGeo = new THREE.TubeGeometry(FEAT_CURVE, TUBE_SEG, 0.22, TUBE_RAD, false);
+  const featTube = new THREE.Mesh(featGeo, featMat); featTube.castShadow = true; featTube.frustumCulled = false;
+  const featHead = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), featMat); featHead.visible = false;
+  const featG = new THREE.Group(); featG.add(featTube, featHead); tagZone(featG, 'feature'); g.add(featG);
+  // pillars under the overpass (appear with the track)
+  const pillars = [];
+  [[-3.6, Y_FEAT - 0.75, -1.9], [-2, Y_FEAT, Z_FEAT], [1.5, Y_FEAT, Z_FEAT], [5, Y_FEAT, Z_FEAT], [6.4, Y_FEAT - 0.75, -1.9]].forEach(([x, y, z]) => {
+    const h = y - 0.3; const p = new THREE.Group(); p.position.set(x, 0, z);
+    p.add(cyl(0.12, 0.16, h, 8, ped, 0, h / 2, 0)); p.add(box(0.8, 0.08, 0.8, ped, 0, h, 0));
+    p.userData.u = uOf([x, y, z]); p.visible = false; p.scale.set(1, 0.0001, 1); g.add(p); pillars.push(p);
+  });
+  const state = { u: 0 };
+  function setU(u) {
+    state.u = u;
+    const segs = Math.floor(u * TUBE_SEG);
+    featGeo.setDrawRange(0, segs * TUBE_RAD * 6);
+    featTube.visible = segs > 0;
+    featHead.visible = u > 0.005 && u < 0.995;
+    if (featHead.visible) FEAT_CURVE.getPointAt(u, featHead.position);
+    pillars.forEach(p => { const on = u >= p.userData.u - 0.01; if (on && !p.visible) { p.visible = true; to(p.scale, { y: 1 }, 0.4, { ease: easeOut }); } else if (!on && p.visible) { p.visible = false; p.scale.y = 0.0001; } });
+  }
+  function tubeTo(u, dur, opts = {}) {
+    if (dur <= 0 && !opts.delay) { setU(u); return null; }
+    let from = 0;
+    return tween({ dur, delay: opts.delay || 0, ease: opts.ease || easeInOut, onStart() { from = state.u; }, update(p) { setU(lerp(from, u, p)); opts.onUpdate && opts.onUpdate(state.u); }, done: opts.done });
+  }
+  setU(0);
+  // labels on tracks
+  const mainL = makeLabel('main', { height: 0.5, fontSize: 48, weight: 700, mono: true, color: '#ffffff', bg: 'rgba(29,78,216,0.95)' });
+  mainL.position.set(-14.5, Y_MAIN + 1.0, 0); g.add(mainL);
+  Object.assign(g, { state, setU, tubeTo, featMat, mainMat, featHead });
+  return g;
+}
+
+/* ---- 6c. commit nodes ---- */
+function makeCommit(c) {
+  const g = new THREE.Group(); g.position.set(...c.pos);
+  const filled = c.kind === 'merge';
+  const col = c.kind === 'feature' ? C.orange : C.blue;
+  const core = new THREE.Mesh(new THREE.SphereGeometry(filled ? 0.5 : 0.36, 16, 12),
+    new THREE.MeshStandardMaterial({ color: filled ? C.blue : 0xf8fafc, roughness: 0.35, emissive: filled ? C.blue : 0x000000, emissiveIntensity: filled ? 0.4 : 0 }));
+  core.castShadow = true; g.add(core);
+  const ringMat = new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.35, roughness: 0.5 });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(filled ? 0.62 : 0.5, 0.085, 10, 36), ringMat); ring.castShadow = true; g.add(ring);
+  const label = makeLabel(`${c.hash}  ${c.msg}`, { height: 0.24, fontSize: 30, weight: 600,
+    bg: c.kind === 'feature' ? 'rgba(124,45,18,0.92)' : 'rgba(15,23,42,0.9)', border: c.kind === 'feature' ? 'rgba(251,146,60,0.7)' : 'rgba(96,165,250,0.6)' });
+  label.position.y = c.kind === 'feature' ? -0.95 : -0.9; g.add(label);
+  g.visible = false; g.scale.setScalar(0.0001);
+  Object.assign(g, { core, ring, ringMat, label, data: c });
+  return g;
+}
+
+/* ---- 6d. branch pointers + HEAD ---- */
+function makePointer(name, color, textColor = '#fff') {
+  const g = new THREE.Group();
+  const pole = cyl(0.035, 0.035, 1, 6, mat(0xcbd5e1)); pole.castShadow = false; g.add(pole);
+  const label = makeLabel(name, { height: 0.36, fontSize: 40, weight: 700, mono: true, color: textColor, bg: hexCss(color, 0.96) });
+  g.add(label);
+  g.lift = 1.1;
+  g.setLift = (l) => { g.lift = l; label.position.y = l + 0.1; pole.scale.y = l; pole.position.y = l / 2; };
+  g.setLift(1.1);
+  g.visible = false; g.scale.setScalar(0.0001);
+  g.label = label; g.pole = pole;
+  return g;
+}
+
+/* ---- 6e. avatar (developer riding a hover disc at HEAD) ---- */
+function buildAvatar() {
+  const g = new THREE.Group();
+  const discMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 });
+  g.add(cyl(0.6, 0.7, 0.14, 8, discMat, 0, 0, 0));
+  const glow = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.05, 8, 8), new THREE.MeshStandardMaterial({ color: C.blueSoft, emissive: C.blueSoft, emissiveIntensity: 0.9 }));
+  glow.rotation.x = Math.PI / 2; glow.position.y = 0.02; g.add(glow);
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.5, 4, 10), mat(C.hoodie, { roughness: 0.9 })); body.position.y = 0.75; body.castShadow = true; g.add(body);
+  [-0.3, 0.3].forEach(x => { const a = box(0.14, 0.5, 0.14, mat(C.hoodie, { roughness: 0.9 }), x, 0.7, 0); a.rotation.z = x < 0 ? 0.25 : -0.25; g.add(a); });
+  [-0.12, 0.12].forEach(x => g.add(box(0.16, 0.35, 0.16, mat(C.pants), x, 0.24, 0)));
+  const hood = new THREE.Mesh(new THREE.SphereGeometry(0.27, 8, 6), mat(C.hoodie, { roughness: 0.9 })); hood.position.set(0, 1.26, -0.06); hood.castShadow = true; g.add(hood);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 8, 6), mat(C.skin)); head.position.set(0, 1.26, 0.07); g.add(head);
+  // headphones (nod to the reference illustration)
+  const hp = mat(0xef4444);
+  [-0.22, 0.22].forEach(x => g.add(box(0.08, 0.16, 0.14, hp, x, 1.24, 0.05)));
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.03, 6, 16, Math.PI), mat(0xef4444)); band.position.set(0, 1.3, 0.05); band.rotation.z = 0; g.add(band);
+  g.scale.setScalar(0.9);
+  g.glow = glow; g.body = body;
+  return g;
+}
+
+/* ---- assemble ---- */
+const ground = buildGround();
+const tracks = buildTracks();
+const nodes = Object.fromEntries(COMMITS.map(c => [c.id, makeCommit(c)]));
+const ptrMain = makePointer('main', 0x1d4ed8);
+const ptrFeat = makePointer('feature/them-cot-retention', 0xea580c);
+const headTag = makeLabel('HEAD', { height: 0.3, fontSize: 34, weight: 800, mono: true, color: '#0b1220', bg: 'rgba(248,250,252,0.97)', border: 'rgba(148,163,184,0.8)' });
+const avatar = buildAvatar();
+const term = makeTerminal();
+const avatarOffset = v(0, -0.62, 1.25);
+scene.add(ground, tracks, ptrMain, ptrFeat, headTag, avatar, camera, ...Object.values(nodes));
+camera.add(term);   // terminal hologram rides with the camera so it never leaves the frame
+const curveTmp = new THREE.Vector3();
+const termBase = () => term;
+
+/* =========================================================
+   7. CAMERA CONTROLLER
+   ========================================================= */
+const CAMS = {
+  overview:    { t: [0.5, 1.8, -0.8], az: 6, el: 27, d: 31 },
+  start:       { t: [-6.5, 1.7, -0.4], az: 10, el: 24, d: 15 },
+  branchPoint: { t: [-5.2, 1.9, -0.6], az: 12, el: 24, d: 13 },
+  feature:     { t: [-2.2, 2.4, -1.5], az: 8, el: 22, d: 17 },
+  featureWide: { t: [1.5, 2.4, -1.4], az: 6, el: 24, d: 20 },
+  mainWork:    { t: [-1, 2.0, -1.0], az: 4, el: 26, d: 21 },
+  merge:       { t: [6.6, 1.9, -0.8], az: 14, el: 24, d: 14 },
+  final:       { t: [1.0, 1.9, -0.8], az: 6, el: 29, d: 34 },
+  mainFocus:   { t: [0, 1.3, 0], az: 6, el: 26, d: 22 },
+};
+const camState = { tx: 0.5, ty: 1.8, tz: -0.8, az: 6, el: 27, d: 31 };
+const userOff = { az: 0, el: 0, d: 0 };
+function camGo(name, dur = 1.0) {
+  const p = CAMS[name];
+  killTweens('cam');
+  to(camState, { tx: p.t[0], ty: p.t[1], tz: p.t[2], az: p.az, el: p.el, d: p.d }, dur, { ease: easeInOut, tag: 'cam' });
+  to(userOff, { az: 0, el: 0, d: 0 }, dur * 0.8, { tag: 'cam' });
+}
+function updateCamera() {
+  const az = (camState.az + userOff.az) * DEG, el = (camState.el + userOff.el) * DEG, d = (camState.d + userOff.d) * (camera.aspect < 0.9 ? 1.45 : 1);
+  camera.position.set(camState.tx + d * Math.cos(el) * Math.sin(az), camState.ty + d * Math.sin(el), camState.tz + d * Math.cos(el) * Math.cos(az));
+  camera.lookAt(camState.tx, camState.ty, camState.tz);
+}
+
+/* =========================================================
+   8. STEP DEFINITIONS + STATE MACHINE
+   ========================================================= */
+const P = (cmd) => ({ t: cmd, c: '#f8fafc', prompt: true });
+const O = (t, c = '#cbd5e1') => ({ t, c });
+const STEPS = [
+  { cmd: 'git log --oneline', title: 'Xuất phát: nhánh main', zone: 'Nhánh main', cam: 'start',
+    explain: 'Nhánh (<b>branch</b>) chỉ là một <b>nhãn trỏ vào commit mới nhất</b>. <b>HEAD</b> cho biết bạn đang đứng ở nhánh nào. Hiện main có 2 commit.',
+    term: [P('git log --oneline'), O('5d6e7f8 (HEAD -> main) Thêm bảng người chơi', '#93c5fd'), O('1a2b3c4 Khởi tạo dashboard', '#93c5fd')] },
+  { cmd: 'git switch -c feature/them-cot-retention', title: 'Tạo nhánh mới và chuyển sang nó', zone: 'main → feature', cam: 'branchPoint',
+    explain: '<b>git switch -c</b> tạo nhãn mới <b>ngay tại commit hiện tại</b> rồi chuyển HEAD sang đó. Không copy code, không tốn dung lượng: hai nhánh đang cùng chỉ một commit.',
+    term: [P('git switch -c feature/them-cot-retention'), O("Switched to a new branch 'feature/them-cot-retention'", '#fdba74'), P('git branch'), O('* feature/them-cot-retention', '#4ade80'), O('  main')] },
+  { cmd: 'git commit -m "Thêm cột retention"', title: 'Commit đầu tiên trên nhánh feature', zone: 'feature', cam: 'feature',
+    explain: 'Commit mới nằm trên nhánh feature: nhãn <b>feature tiến lên</b>, còn <b>main vẫn đứng yên</b> ở chỗ cũ. Code trên feature không ảnh hưởng main.',
+    term: [P('git commit -m "Thêm cột retention"'), O('[feature/them-cot-retention 9a8b7c6] Thêm cột retention', '#fdba74'), O(' 1 file changed, 24 insertions(+)')] },
+  { cmd: 'git commit  (×2)', title: 'Tiếp tục làm việc trên feature', zone: 'feature', cam: 'featureWide',
+    explain: 'Cứ commit thoải mái trên feature. Đây là <b>chỗ thử nghiệm an toàn</b>: có hỏng cũng không đụng tới main đang chạy.',
+    term: [P('git commit -m "Tính retention D1/D7"'), O('[feature/them-cot-retention 3c4d5e6] Tính retention D1/D7', '#fdba74'), P('git commit -m "Viết test retention"'), O('[feature/them-cot-retention 7f8a9b0] Viết test retention', '#fdba74')] },
+  { cmd: 'git switch main  →  git commit', title: 'main vẫn chạy bình thường', zone: 'feature → main', cam: 'mainWork',
+    explain: 'Quay về main để sửa lỗi gấp: <b>main có commit riêng</b>, không chứa gì của feature. Hai nhánh giờ đã <b>tách xa nhau</b> (diverge).',
+    term: [P('git switch main'), O("Switched to branch 'main'", '#93c5fd'), P('git commit -m "Sửa lỗi hiển thị"'), O('[main 2b3c4d5] Sửa lỗi hiển thị', '#93c5fd')] },
+  { cmd: 'git merge feature/them-cot-retention', title: 'Gộp feature vào main', zone: 'feature → main', cam: 'merge',
+    explain: '<b>git merge</b> tạo một <b>merge commit có 2 cha</b>: commit cuối của main và commit cuối của feature. main giờ chứa cả phần sửa lỗi lẫn cột retention.',
+    term: [P('git merge feature/them-cot-retention'), O("Merge made by the 'ort' strategy."), O(' retention.py   | 48 ++++++++', '#4ade80'), O(' test_retention | 13 +++', '#4ade80'), O(' 2 files changed, 61 insertions(+)')] },
+  { cmd: 'git branch -d feature/them-cot-retention', title: 'Dọn nhánh, tiếp tục trên main', zone: 'main', cam: 'final',
+    explain: 'Nhánh đã gộp xong thì <b>xoá nhãn</b> cho gọn, lịch sử commit vẫn còn nguyên. <b>git log --graph</b> vẽ đúng hình bạn vừa xem.',
+    term: [P('git branch -d feature/them-cot-retention'), O('Deleted branch feature/them-cot-retention (was 7f8a9b0).'), P('git log --oneline --graph'),
+      O('* 6c7d8e9 (HEAD -> main) Cập nhật tài liệu', '#93c5fd'), O("*   e1f2a3b Merge branch 'feature/them-cot-retention'", '#93c5fd'), O('|\\'), O('| * 7f8a9b0 Viết test retention', '#fdba74'),
+      O('| * 3c4d5e6 Tính retention D1/D7', '#fdba74'), O('| * 9a8b7c6 Thêm cột retention', '#fdba74'), O('* | 2b3c4d5 Sửa lỗi hiển thị', '#93c5fd'), O('|/'), O('* 5d6e7f8 Thêm bảng người chơi', '#93c5fd')] },
+];
+// branch tips per step: which commit each label points to, where HEAD is, how far the orange track is built
+const TIPS = [
+  { main: 'c2', feat: null, head: 'main', u: 0 },
+  { main: 'c2', feat: 'c2', head: 'feat', u: 0.03 },
+  { main: 'c2', feat: 'c3', head: 'feat', u: U.c3 },
+  { main: 'c2', feat: 'c5', head: 'feat', u: U.c5 },
+  { main: 'c6', feat: 'c5', head: 'main', u: U.c5 },
+  { main: 'm',  feat: 'c5', head: 'main', u: 1 },
+  { main: 'c7', feat: null, head: 'main', u: 1 },
+];
+let step = -1;
+
+const nodePos = id => v(...byId[id].pos);
+function ptrTarget(id, lift) { const p = nodePos(id); return [p.x, p.y, p.z, lift]; }
+function movePointer(ptr, id, lift, dur, opts) { const p = nodePos(id); to(ptr.position, { x: p.x, y: p.y, z: p.z }, dur, opts); to(ptr, { lift }, dur, { ...opts, done: undefined }); }
+function headTo(ptr, dur, opts = {}) {
+  // HEAD tag floats above the given pointer's label; tracked each frame via headTag.userData.follow
+  headTag.userData.follow = ptr;
+  if (dur <= 0) { headTag.userData.blend = 1; return; }
+  headTag.userData.blend = 0; headTag.userData.from = headTag.position.clone();
+  to(headTag.userData, { blend: 1 }, dur, opts);
+}
+function avatarTo(id, dur, opts = {}) { const p = nodePos(id).add(avatarOffset); return to(avatar.position, { x: p.x, y: p.y, z: p.z }, dur, opts); }
+function avatarRide(u0, u1, dur, opts = {}) { // follow the orange curve between two parameters
+  return tween({ dur, delay: opts.delay || 0, ease: opts.ease || easeInOut, update(p) {
+    FEAT_CURVE.getPointAt(lerp(u0, u1, p), curveTmp); avatar.position.copy(curveTmp).add(avatarOffset);
+    opts.onUpdate && opts.onUpdate(p);
+  }, done: opts.done });
+}
+
+function showTerminal(s, delay = 0, type = true) {
+  if (!s.term) { hideTerminal(); return; }
+  tween({ dur: 0.01, delay, update() {}, done() { term.setLines(s.term, type); pop(term, 0.5); } });
+}
+function hideTerminal(dur = 0.3) { if (term.visible) show(term, false, dur); }
+
+function setPreInit() {
+  term.visible = false;
+  COMMITS.forEach(c => { const n = nodes[c.id]; n.visible = false; n.scale.setScalar(0.0001); });
+  tracks.setU(0);
+  ptrMain.visible = false; ptrMain.scale.setScalar(0.0001); ptrFeat.visible = false; ptrFeat.scale.setScalar(0.0001);
+  headTag.visible = false; headTag.userData.follow = ptrMain; headTag.userData.blend = 1;
+  avatar.position.copy(nodePos('c2').add(avatarOffset));
+  lights.feature.intensity = 0; lights.merge.intensity = 0;
+  document.getElementById('recap').classList.remove('show');
+}
+
+/** Put everything into the FINAL state of step n. mode: 'instant' | 'quick' */
+function applyState(n, mode) {
+  const d = mode === 'instant' ? 0 : 0.45;
+  const s = STEPS[n], t = TIPS[n];
+  killTweens('term');
+  if (s.term) { term.visible = true; term.scale.setScalar(1); term.setLines(s.term, false); } else term.visible = false;
+  COMMITS.forEach(c => { const node = nodes[c.id]; if (c.from <= n) { node.visible = true; setScale(node, 1, d); } else show(node, false, d); });
+  tracks.tubeTo(t.u, d);
+  const together = t.feat && t.feat === t.main;
+  ptrMain.visible = true; setScale(ptrMain, 1, d); movePointer(ptrMain, t.main, 1.1, d);
+  if (t.feat) { ptrFeat.visible = true; setScale(ptrFeat, 1, d); movePointer(ptrFeat, t.feat, together ? 2.0 : 1.1, d); } else show(ptrFeat, false, d);
+  headTag.visible = true; headTo(t.head === 'main' ? ptrMain : ptrFeat, d);
+  avatarTo(t.head === 'main' ? t.main : t.feat, d);
+  to(lights.feature, { intensity: (n >= 1 && n <= 3) ? 40 : 10 }, d);
+  to(lights.merge, { intensity: n >= 5 ? 45 : 0 }, d);
+  document.getElementById('recap').classList.toggle('show', n === 6);
+}
+
+/** Cinematic forward animation INTO step n (assumes step n-1 final state). */
+function animateStep(n) {
+  const s = STEPS[n];
+  const burst = (id, col, k = 40) => particles.emit(nodePos(id), col, k, 0.7, 2.0);
+  switch (n) {
+    case 0: {
+      showTerminal(s, 0.3);
+      ['c1', 'c2'].forEach((id, i) => tween({ dur: 0.01, delay: 0.8 + i * 0.5, update() {}, done() { pop(nodes[id], 0.6); burst(id, C.blueSoft, 30); } }));
+      tween({ dur: 0.01, delay: 2.0, update() {}, done() { ptrMain.position.copy(nodePos('c2')); ptrMain.setLift(1.1); pop(ptrMain, 0.6); } });
+      tween({ dur: 0.01, delay: 2.5, update() {}, done() { headTag.visible = true; headTo(ptrMain, 0); pop(headTag, 0.5); } });
+      break;
+    }
+    case 1: {
+      showTerminal(s, 0.2);
+      tween({ dur: 0.01, delay: 0.9, update() {}, done() { ptrFeat.position.copy(nodePos('c2')); ptrFeat.setLift(2.0); pop(ptrFeat, 0.7); burst('c2', C.orange, 50); } });
+      tween({ dur: 0.01, delay: 1.7, update() {}, done() { headTo(ptrFeat, 0.7); } });
+      tracks.tubeTo(0.03, 0.5, { delay: 1.9 });
+      to(lights.feature, { intensity: 40 }, 1.0, { delay: 1.0 });
+      // little hop of the avatar
+      tween({ dur: 0.5, delay: 1.8, ease: t => Math.sin(t * Math.PI), update(p) { avatar.position.y = nodePos('c2').y + avatarOffset.y + p * 0.6; } });
+      break;
+    }
+    case 2: {
+      showTerminal(s, 0.2);
+      movePointer(ptrMain, 'c2', 1.1, 0.5, { delay: 0.6 });   // main pointer drops back down once feature leaves
+      tracks.tubeTo(U.c3, 1.7, { delay: 0.8, onUpdate(u) { particles.emit(tracks.featHead.position, C.orange, 2, 0.25, 0.8, 0.4); } });
+      avatarRide(0.03, U.c3, 1.7, { delay: 0.8, done() { pop(nodes.c3, 0.6); burst('c3', C.orange); movePointer(ptrFeat, 'c3', 1.1, 0.6); } });
+      break;
+    }
+    case 3: {
+      showTerminal(s, 0.2);
+      tracks.tubeTo(U.c4, 1.2, { delay: 0.6, onUpdate() { particles.emit(tracks.featHead.position, C.orange, 2, 0.25, 0.8, 0.4); } });
+      avatarRide(U.c3, U.c4, 1.2, { delay: 0.6, done() { pop(nodes.c4, 0.5); burst('c4', C.orange); movePointer(ptrFeat, 'c4', 1.1, 0.5); } });
+      tracks.tubeTo(U.c5, 1.2, { delay: 2.3, onUpdate() { particles.emit(tracks.featHead.position, C.orange, 2, 0.25, 0.8, 0.4); } });
+      avatarRide(U.c4, U.c5, 1.2, { delay: 2.3, done() { pop(nodes.c5, 0.5); burst('c5', C.orange); movePointer(ptrFeat, 'c5', 1.1, 0.5); } });
+      break;
+    }
+    case 4: {
+      showTerminal(s, 0.2);
+      tween({ dur: 0.01, delay: 0.8, update() {}, done() { headTo(ptrMain, 0.8); } });
+      // jump back down to main at c2 (switch main), then commit c6
+      avatarTo('c2', 1.1, { delay: 0.9, ease: easeInOut });
+      to(lights.feature, { intensity: 10 }, 1.0, { delay: 1.0 });
+      tween({ dur: 0.01, delay: 2.4, update() {}, done() { avatarTo('c6', 0.9); } });
+      tween({ dur: 0.01, delay: 3.2, update() {}, done() { pop(nodes.c6, 0.6); burst('c6', C.blueSoft); movePointer(ptrMain, 'c6', 1.1, 0.6); } });
+      break;
+    }
+    case 5: {
+      showTerminal(s, 0.2);
+      tracks.tubeTo(1, 1.8, { delay: 0.8, onUpdate() { particles.emit(tracks.featHead.position, C.orange, 3, 0.3, 1.0, 0.5); } });
+      to(lights.merge, { intensity: 45 }, 1.0, { delay: 2.0 });
+      tween({ dur: 0.01, delay: 2.6, update() {}, done() {
+        pop(nodes.m, 0.8); burst('m', C.blueSoft, 70); burst('m', C.orange, 40);
+        movePointer(ptrMain, 'm', 1.1, 0.7); avatarTo('m', 0.8);
+      } });
+      break;
+    }
+    case 6: {
+      showTerminal(s, 0.2);
+      show(ptrFeat, false, 0.6, { delay: 0.9 });
+      tween({ dur: 0.01, delay: 0.9, update() {}, done() { burst('c5', 0x94a3b8, 30); } });
+      tween({ dur: 0.01, delay: 2.0, update() {}, done() { avatarTo('c7', 0.9); } });
+      tween({ dur: 0.01, delay: 2.8, update() {}, done() { pop(nodes.c7, 0.6); burst('c7', C.blueSoft); movePointer(ptrMain, 'c7', 1.1, 0.6); document.getElementById('recap').classList.add('show'); } });
+      break;
+    }
+  }
+}
+
+function goTo(n) {
+  n = clamp(n, 0, STEPS.length - 1);
+  if (n === step) return;
+  const forward = n === step + 1, prev = step;
+  step = n;
+  killTweens();
+  if (forward) { if (prev >= 0) applyState(prev, 'instant'); animateStep(n); }
+  else applyState(n, 'quick');
+  camGo(STEPS[n].cam);
+  updateUI();
+}
+
+/* =========================================================
+   9. UI CONTROLS
+   ========================================================= */
+const $ = id => document.getElementById(id);
+const dotsEl = $('dots');
+STEPS.forEach((_, i) => { const dot = document.createElement('span'); dot.title = `Bước ${i + 1}: ${STEPS[i].cmd}`; dot.addEventListener('click', () => goTo(i)); dotsEl.appendChild(dot); });
+function updateUI() {
+  const s = STEPS[step];
+  $('stepNo').textContent = step + 1;
+  $('cmdText').textContent = s.cmd;
+  $('cmdTitle').textContent = s.title;
+  $('zoneTag').textContent = s.zone;
+  $('explainText').innerHTML = s.explain;
+  $('counter').textContent = `${step + 1} / ${STEPS.length}`;
+  $('prev').disabled = step === 0;
+  $('next').textContent = step === STEPS.length - 1 ? 'Xem lại từ đầu ↺' : 'Tiếp theo →';
+  [...dotsEl.children].forEach((d, i) => { d.classList.toggle('active', i === step); d.classList.toggle('done', i < step); });
+}
+$('prev').addEventListener('click', () => goTo(step - 1));
+$('next').addEventListener('click', () => { if (step === STEPS.length - 1) { step = -1; setPreInit(); goTo(0); } else goTo(step + 1); });
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); goTo(step + 1); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); goTo(step - 1); }
+});
+
+const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
+let drag = null, lastHover = 0;
+const ZONE_CAM = { main: 'mainFocus', feature: 'featureWide' };
+function pickZone(e) {
+  ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  const hit = raycaster.intersectObjects(zoneMeshes, false)[0];
+  return hit ? hit.object.userData.zone : null;
+}
+canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', e => {
+  if (drag) {
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
+    if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 5) { drag.moved = true; canvas.classList.add('dragging'); killTweens('cam'); }
+    if (drag.moved) { userOff.az = clamp(userOff.az - dx * 0.22, -30, 30); userOff.el = clamp(userOff.el + dy * 0.14, -12, 18); }
+  } else if (performance.now() - lastHover > 90) {
+    lastHover = performance.now(); canvas.classList.toggle('hover', !!pickZone(e));
+  }
+});
+canvas.addEventListener('pointerup', e => {
+  if (drag && !drag.moved) { const z = pickZone(e); if (z) camGo(ZONE_CAM[z], 0.9); }
+  drag = null; canvas.classList.remove('dragging');
+});
+canvas.addEventListener('pointercancel', () => { drag = null; canvas.classList.remove('dragging'); });
+canvas.addEventListener('wheel', e => { e.preventDefault(); killTweens('cam'); userOff.d = clamp(userOff.d + e.deltaY * 0.012, -6, 8); }, { passive: false });
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.fov = w / h < 0.9 ? 50 : (w / h < 1.3 ? 42 : 35); camera.updateProjectionMatrix();
+  // keep the terminal under the top-left panel, inside the view, whatever the aspect
+  const halfH = 14 * Math.tan(camera.fov * DEG / 2), halfW = halfH * camera.aspect;
+  const topFrac = camera.aspect < 0.9 ? 0.3 : (camera.aspect < 1.3 ? 0.22 : 0.17);
+  term.position.set(camera.aspect < 0.9 ? 0 : -halfW + 2.1 + 0.45, halfH - 2 * halfH * topFrac - 1.45, -14);
+}
+window.addEventListener('resize', resize); resize();
+
+/* =========================================================
+   10. ANIMATION LOOP
+   ========================================================= */
+const clock = new THREE.Clock();
+const headTmp = new THREE.Vector3();
+function idle(t, dt) {
+  // HEAD tag follows its pointer label (blended when switching)
+  const f = headTag.userData.follow;
+  if (f) {
+    headTmp.set(f.position.x, f.position.y + f.lift + 0.62, f.position.z);
+    const b = headTag.userData.blend ?? 1;
+    if (b < 1 && headTag.userData.from) headTag.position.lerpVectors(headTag.userData.from, headTmp, easeInOut(b)); else headTag.position.copy(headTmp);
+    headTag.position.y += Math.sin(t * 2.5) * 0.05;
+  }
+  [ptrMain, ptrFeat].forEach(p => p.setLift(p.lift));
+  avatar.position.y += 0; avatar.body.position.y = 0.75 + Math.sin(t * 2.2) * 0.02;
+  avatar.glow.material.emissiveIntensity = 0.8 + Math.sin(t * 4) * 0.3;
+  COMMITS.forEach((c, i) => { const n = nodes[c.id]; if (n.visible) n.ringMat.emissiveIntensity = 0.35 + Math.sin(t * 2.5 + i) * 0.15; });
+  ground.clouds.forEach(c => { c.position.x = c.userData.baseX + Math.sin(t * 0.2 + c.userData.phase) * 0.8; });
+  tracks.featMat.emissiveIntensity = 0.15 + Math.sin(t * 3) * 0.08;
+  particles.update(dt);
+}
+
+let firstFrame = true, frozen = false;
+function frame() {
+  requestAnimationFrame(frame);
+  const dt = frozen ? 0 : Math.min(clock.getDelta(), 0.05);
+  now += dt;
+  runTweens();
+  idle(now, dt);
+  updateCamera();
+  renderer.render(scene, camera);
+  if (firstFrame) { firstFrame = false; document.getElementById('loading').classList.add('hide'); }
+}
+
+setPreInit();
+goTo(0);
+// Deep links: #step=5  |  #step=5&anim (play that step's entry animation)  |  &t=2.5 (fast-forward seconds, for screenshots)
+{
+  const q = Object.fromEntries(location.hash.slice(1).split('&').filter(Boolean).map(kv => kv.split('=')));
+  if (q.step) { const target = clamp(+q.step - 1, 0, STEPS.length - 1); if ('anim' in q) { for (let i = 1; i <= target; i++) goTo(i); } else if (target > 0) goTo(target); }
+  if (q.t) { const T = +q.t; while (now < T) { now += 1 / 60; runTweens(); idle(now, 1 / 60); } frozen = true; }
+}
+frame();
+</script>
+</body>
+</html>
